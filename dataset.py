@@ -6,12 +6,14 @@ import numpy as np
 from PIL import Image
 
 class FreiHandDataset(Dataset):
-    def __init__(self, imgs_path, annotations, n_augmentations=4, transforms=None):
+    def __init__(self, imgs_path, annotations, K, n_augmentations=4, transforms=None):
         self.imgs_path = imgs_path
-        f = open(annotations, 'r')
-        self.annotations = np.array(json.load(f))[:,:2] # Only x and y coordinates
+        f_ann = open(annotations, 'r')
+        f_k = open(K, 'r')
+        self.xyz = np.array(json.load(f_ann))
+        self.K = np.array(json.load(f_k))
         self.n_augmentations = n_augmentations
-        self.n_images = len(self.annotations) * n_augmentations
+        self.n_images = len(self.xyz) * n_augmentations
         self.transforms = transforms
     
     def __len__(self):
@@ -21,12 +23,27 @@ class FreiHandDataset(Dataset):
         return DataLoader(self, batch_size=batch_size)
 
     def __getitem__(self, idx):
-        points = self.annotations[idx%len(self.annotations)]
+        no_augm_idx = idx%len(self.xyz)
+        xyz = self.xyz[no_augm_idx]
+        K = self.K[no_augm_idx]
+        uv = np.matmul(K, xyz.T).T
+        points = uv[:, :2] / uv[:, -1:]
         img_path = self.imgs_path + '/' + '0'*(8 - len(str(idx))) + str(idx) + '.jpg'
         img = Image.open(img_path).convert('RGB')
+        img = np.asarray(img)
 
+        if self.transforms is not None:
+            img, points = self.transforms(img, points)
+        
+        return img, points
 
 if __name__ == '__main__':
-    dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json')
-    dataset[1000]
+    import matplotlib.pyplot as plt
+    dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json')
+    for img, points in dataset:
+        fig, ax = plt.subplots()
+        ax.imshow(img)
+        for p in points:
+            ax.scatter(p[0], p[1], c='r', s=10)
+        plt.show()
     
