@@ -6,9 +6,9 @@ import numpy as np
 from PIL import Image
 
 class FreiHandDataset(Dataset):
-    def __init__(self, imgs_path, annotations, K, n_augmentations=4, transforms=None):
+    def __init__(self, imgs_path, xyz, K, n_augmentations=4, transforms=None):
         self.imgs_path = imgs_path
-        f_ann = open(annotations, 'r')
+        f_ann = open(xyz, 'r')
         f_k = open(K, 'r')
         self.xyz = np.array(json.load(f_ann))
         self.K = np.array(json.load(f_k))
@@ -38,7 +38,8 @@ class FreiHandDataset(Dataset):
         return img, points
 
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as pyplot
+    
     dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json')
     for img, points in dataset:
         fig, ax = plt.subplots()
