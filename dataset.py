@@ -31,11 +31,12 @@ class FreiHandDataset(Dataset):
         img_path = self.imgs_path + '/' + '0'*(8 - len(str(idx))) + str(idx) + '.jpg'
         img = Image.open(img_path).convert('RGB')
         img = np.asarray(img)
+        sample = (img, points)
 
         if self.transforms is not None:
-            img, points = self.transforms(img, points)
+            sample = self.transforms(sample)
         
-        return img, points
+        return sample
 
 if __name__ == '__main__':
     import matplotlib.pyplot as pyplot
