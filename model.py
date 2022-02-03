@@ -6,11 +6,11 @@ import numpy as np
 import sys
 
 class DenseBlock(nn.Module):
-    def __init__(self, in_channels, layer, n_layers, growth_rate):
+    def __init__(self, in_channels, layer, n_layers, kernel_size, growth_rate):
         super(DenseBlock, self).__init__()
         self.layers = nn.ModuleList()
         for n in range(n_layers):
-            self.layers.append(layer(in_channels + n*growth_rate, growth_rate))
+            self.layers.append(layer(in_channels + n*growth_rate, growth_rate, kernel_size=kernel_size))
 
     def forward(self, X):
         for l in self.layers:
@@ -48,11 +48,11 @@ class InvertedBottleneckLayer(nn.Module):
         super(InvertedBottleneckLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.conv_in = nn.Conv2d(in_channels, in_channels*e, kernel_size=1)
-        self.bn1 = nn.BatchNorm2d(in_channels*e)
+        self.conv_in = nn.Conv2d(in_channels, out_channels*e, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(out_channels*e)
         pad = kernel_size // 2
-        self.depthwise_conv = nn.Conv2d(in_channels*e, in_channels*e, kernel_size=kernel_size, groups=in_channels*e, padding=pad)
-        self.conv_out = nn.Conv2d(in_channels*e, out_channels, kernel_size=1)
+        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e, padding=pad)
+        self.conv_out = nn.Conv2d(out_channels*e, out_channels, kernel_size=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.mish = nn.Mish()
 
@@ -75,22 +75,22 @@ class InvertedBottleneckLayer(nn.Module):
         return f'InvertedBottleneckLayer(in_channels={self.in_channels}, out_channels={self.out_channels})'
 
 class AAInvertedBottleneckLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, n_heads=4, e=4):
+    def __init__(self, in_channels, out_channels, kernel_size, n_heads=4, dv=0.2, dk=0.2, e=4):
         super(AAInvertedBottleneckLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         # Regular Inverted Bottleneck Layer
         self.conv_in = nn.Conv2d(in_channels, out_channels*e, kernel_size=1)
         self.bn1 = nn.BatchNorm2d(out_channels*e)
-        self.depthwise_conv = nn.Sequential(*[
-            nn.Conv2d(out_channels*e, out_channels*e, kernel_size=3, groups=out_channels*e),
-            nn.Conv2d(out_channels*e, out_channels*e, kernel_size=1)
-        ])
+        pad = kernel_size // 2
+        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e, padding=pad)
         self.conv_out = nn.Conv2d(out_channels*e, out_channels, kernel_size=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.mish = nn.Mish()
         # Attention Augmentation components
         self.n_heads = n_heads
+        self.dv = dv
+        self.dk = dk
 
     def forward(self, X):
         return X
@@ -105,21 +105,29 @@ class HandPoseEstimator(nn.Module):
         # Architecture
         prev_channels = 3
         for block in architecture:
-            if block[0] == 'Dense':
-                if block[1] == 'IBL':
-                    self.blocks.append(DenseBlock(prev_channels, InvertedBottleneckLayer, block[2], growth_rate))
-                elif block[1] == 'AAIBL':
-                    self.blocks.append(DenseBlock(prev_channels, AAInvertedBottleneckLayer, block[2], growth_rate))
-                prev_channels += growth_rate * block[2]
-            elif block[0] == 'Transition':
-                self.blocks.append(TransitionLayer(prev_channels, block[1]))
-                prev_channels = block[1]
-            elif block[0] == 'AAIBL':
-                self.blocks.append(AAInvertedBottleneckLayer(prev_channels))
-            elif block[0] == 'AvgPool':
-                self.blocks.append(nn.AvgPool2d(block[1], block[2]))
-            elif block[0] == 'out':
-                self.blocks.append(nn.Conv2d(prev_channels, block[1], kernel_size=1))
+            if block['type'] == 'Dense':
+                if block['layer'] == 'IBL':
+                    self.blocks.append(DenseBlock(prev_channels, 
+                                                  InvertedBottleneckLayer, 
+                                                  block['n_repeats'], 
+                                                  block['kernel_size'], 
+                                                  growth_rate))
+                elif block['type'] == 'AAIBL':
+                    self.blocks.append(DenseBlock(prev_channels, 
+                                                  AAInvertedBottleneckLayer, 
+                                                  block['n_repeats'], 
+                                                  block['kernel_size'],
+                                                  growth_rate))
+                prev_channels += growth_rate * block['n_repeats']
+            elif block['type'] == 'Transition':
+                self.blocks.append(TransitionLayer(prev_channels, block['out_channels']))
+                prev_channels = block['out_channels']
+            elif block['type'] == 'AAIBL':
+                self.blocks.append(AAInvertedBottleneckLayer(prev_channels, block['out_channels'], block['kernel_size']))
+            elif block['type'] == 'AvgPool':
+                self.blocks.append(nn.AvgPool2d(block['kernel_size'], block['stride']))
+            elif block['type'] == 'out':
+                self.blocks.append(nn.Conv2d(prev_channels, block['out_channels'], block['kernel_size']))
 
     def forward(self, X):
         for block in self.blocks:
