@@ -6,11 +6,11 @@ import numpy as np
 import sys
 
 class DenseBlock(nn.Module):
-    def __init__(self, in_channels, layer, n_layers, kernel_size, growth_rate):
+    def __init__(self, in_channels, layer, n_layers, kernel_size=3, growth_rate=10, n_heads=None):
         super(DenseBlock, self).__init__()
         self.layers = nn.ModuleList()
         for n in range(n_layers):
-            self.layers.append(layer(in_channels + n*growth_rate, growth_rate, kernel_size=kernel_size))
+            self.layers.append(layer(in_channels + n*growth_rate, growth_rate, kernel_size=kernel_size, n_heads=n_heads))
 
     def forward(self, X):
         for l in self.layers:
@@ -44,7 +44,7 @@ class TransitionLayer(nn.Module):
         return f'TransitionLayer(in_channels={self.in_channels}, out_channels={self.out_channels})'
 
 class InvertedBottleneckLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, e=4):
+    def __init__(self, in_channels, out_channels, kernel_size=3, e=4, n_heads=None):
         super(InvertedBottleneckLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -75,7 +75,7 @@ class InvertedBottleneckLayer(nn.Module):
         return f'InvertedBottleneckLayer(in_channels={self.in_channels}, out_channels={self.out_channels})'
 
 class AAInvertedBottleneckLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, n_heads=4, dv=0.2, dk=0.2, e=4):
+    def __init__(self, in_channels, out_channels, kernel_size, n_heads=4, dv=0.1, dk=0.1, e=4):
         super(AAInvertedBottleneckLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -89,14 +89,78 @@ class AAInvertedBottleneckLayer(nn.Module):
         self.mish = nn.Mish()
         # Attention Augmentation components
         self.n_heads = n_heads
-        self.dv = dv
-        self.dk = dk
+        self.dv = int(dv * out_channels * e)
+        self.dk = int(dk * out_channels * e)
+        self.aug_conv_out = nn.Conv2d(out_channels*e, out_channels*e-self.dv, kernel_size)
+        self.qkv_conv = nn.Conv2d(out_channels*e, 2*self.dk+self.dv, 1) 
+        # self.attention_out = nn.Conv2d(cos, self.dv, 1)
+        self.AA = AttentionAugmentation2d(2*self.dk+self.dv, self.dk, self.dv, n_heads)
 
     def forward(self, X):
-        return X
+        X = self.conv_in(X)
+        X = self.bn1(X)
+        X = self.mish(X)
+
+        X = self.depthwise_conv(X)
+        X = self.bn1(X)
+        X = self.mish(X)
+        # Attention Augmentation
+        a = self.aug_conv_out(X)
+        attn_out = self.qkv_conv(X)
+        attn_out = self.AA(attn_out)
+        attn_out = self.attention_out(attention_out)
+        attn_out = torch.cat((a, attn_out), dim=1)
+        attn_out = self.bn1(attn_out)
+        attn_out = self.mish(attn_out)
+        X = X + attn_out # Add results of depthwise convolution and AA block
+        # Head
+        X = self.conv_out(X)
+        X = self.bn2(X)
+        X = self.mish(X)
 
     def __repr__(self):
         return f'AAInvertedBottleneckLayer(in_channels={self.in_channels}, out_channels={self.out_channels})'
+
+class AttentionAugmentation2d(nn.Module):
+    def __init__(self, in_channels, dk, dv, n_heads=4):
+        super(AttentionAugmentation2d, self).__init__()
+        self.in_channels = in_channels
+        self.dk = dk
+        self.dv = dv
+        self.n_heads = n_heads
+        self.dk_per_head = (self.dk // n_heads) ** -0.5
+        self.w = nn.Parameter(data = torch.tensor([1.,1.,1.]))
+
+    def forward(self, X):
+        # Split input along channels dim into Keys, Values and Queries
+        q, k ,v = torch.split(X, [self.dk, self.dk, self.dv], dim=1)
+        # Split Keys, Values and Queries into n_heads
+        q = self.split_heads(q)
+        k = self.split_heads(k)
+        v = self.split_heads(v)
+        
+        q = q * self.dk_per_head
+
+        # Flatten spatial dimentions
+        flat_q = self.flatten_spatial(q)
+        flat_k = self.flatten_spatial(k)
+        flat_v = self.flatten_spatial(v)
+
+        # Calculate logits        
+        logits = torch.matmul(flat_k.transpose(3,2), flat_q)
+        print(logits.shape)
+
+        return X
+
+    def split_heads(self, x):
+        batch, channels, w, h = x.shape
+        x = x.view(batch, self.n_heads, channels // self.n_heads, w, h)
+        return x
+
+    def flatten_spatial(self, x):
+        batch, n_heads, channels, w, h = x.shape
+        x = x.view(batch, n_heads, channels, w*h)
+        return x
 
 class HandPoseEstimator(nn.Module):
     def __init__(self, architecture, img_size=224, growth_rate=10):
@@ -112,12 +176,13 @@ class HandPoseEstimator(nn.Module):
                                                   block['n_repeats'], 
                                                   block['kernel_size'], 
                                                   growth_rate))
-                elif block['type'] == 'AAIBL':
+                elif block['layer'] == 'AAIBL':
                     self.blocks.append(DenseBlock(prev_channels, 
                                                   AAInvertedBottleneckLayer, 
                                                   block['n_repeats'], 
                                                   block['kernel_size'],
-                                                  growth_rate))
+                                                  growth_rate,
+                                                  block['n_heads']))
                 prev_channels += growth_rate * block['n_repeats']
             elif block['type'] == 'Transition':
                 self.blocks.append(TransitionLayer(prev_channels, block['out_channels']))
@@ -148,8 +213,8 @@ if __name__ == '__main__':
     dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json', transforms=transforms)
     loader = dataset.get_loader(batch_size=1)
     model = HandPoseEstimator(architecture)
-    for p in model.parameters():
-        p.requires_grad = True
+    # for p in model.parameters():
+    #     p.requires_grad = True
     model.half()
     model.to(device)
 
