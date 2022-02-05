@@ -218,6 +218,7 @@ class HandPoseEstimator(nn.Module):
     def __init__(self, architecture, img_size=224, growth_rate=10):
         super(HandPoseEstimator, self).__init__()
         self.blocks = nn.ModuleList()
+        self.relu = nn.ReLU()
         # Architecture
         prev_channels = 3
         for block in architecture:
@@ -252,32 +253,8 @@ class HandPoseEstimator(nn.Module):
         for block in self.blocks:
             X = block(X)
 
+        X = self.relu(X)
+        X = torch.clamp(X, max=1)
+        X = X.reshape(-1, X.shape[1] // 2, 2)
         return X
-
-if __name__ == '__main__':
-    import torchvision.transforms as T
-    from transforms import *
-    from dataset import FreiHandDataset
-    import time
-
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    transforms = T.Compose([
-        ToTensor()
-    ])
-    dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json', transforms=transforms)
-    loader = dataset.get_loader(batch_size=4)
-    model = HandPoseEstimator(architecture)
-    # for p in model.parameters():
-    #     p.requires_grad = True
-    model.half()
-    model.to(device)
-
-    for imgs, points in loader:
-        imgs = imgs.to(device)
-        start = time.time()
-        print('Before forward', torch.cuda.memory_allocated(0))
-        output = model(imgs)
-        print('After forward', torch.cuda.memory_allocated(0)) 
-        print(time.time() - start)
-        break
 

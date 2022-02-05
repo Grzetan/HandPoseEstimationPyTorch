@@ -39,7 +39,7 @@ class FreiHandDataset(Dataset):
         return sample
 
 if __name__ == '__main__':
-    import matplotlib.pyplot as pyplot
+    import matplotlib.pyplot as plt
     
     dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json')
     for img, points in dataset:
