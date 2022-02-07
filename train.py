@@ -4,18 +4,18 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 from model import HandPoseEstimator
 from architecture import architecture
-from dataset import FreiHandDataset
+from PanopticHandDataset import PanopticHandDataset
 from transforms import *
+import time
 
 def train(model, criterion, optimizer, loader, scheduler, epochs=1, save=300):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model.half()
     model.to(device)
     model.train()
 
     for epoch in range(epochs):
         losses = []
-
+        start = time.time()
         for i, (imgs, points) in enumerate(loader):
             optimizer.zero_grad()
             imgs = imgs.to(device)
@@ -26,20 +26,29 @@ def train(model, criterion, optimizer, loader, scheduler, epochs=1, save=300):
             optimizer.step()
             scheduler.step()
             losses.append(loss.item())
-            print(f'\rEpoch {epoch+1}/{epochs}, Progress: {round(i/len(loader) * 100, 3)}%, Loss: {round(sum(losses) / len(losses), 5)}, Saved {i//save} times', end='')
+            print(f'\rEpoch {epoch+1}/{epochs}, Progress: {round(i/len(loader) * 100, 3)}%, Loss: {round(sum(losses) / len(losses), 5)}, Saved {i//save} times, Time Elapsed: {(time.time() - start) // 60}min', end='')
             if i % save == 0:
-                torch.save(model.state_dict(), './model1.pth')
-        torch.save(model.state_dict(), './model1.pth')
+                torch.save(model.state_dict(), f'./model-epoch{epoch}-loss{round(sum(losses) / len(losses), 5)}.pth')
+        torch.save(model.state_dict(), f'./model-epoch{epoch}-loss{round(sum(losses) / len(losses), 5)}.pth')
+        print(" ")
 
 transforms = Compose([
+    Resize(),
     ToTensor()
 ])
 
 model = HandPoseEstimator(architecture)
+
 criterion = nn.MSELoss(reduction='sum')
 optimizer = optim.SGD(model.parameters(), lr=0.0001)
-dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json', transforms=transforms)
+# optimizer = optim.Adam(params=model.parameters(), lr=1e-4)
+
+# dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json', transforms=transforms)
+dataset = PanopticHandDataset('./PanopticHandDataset/hand_labels_synth', transforms=transforms)
+
 loader = dataset.get_loader(batch_size=2)
 step_size = len(loader) * 8
-scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0001, max_lr=0.1, mode='triangular2')
-train(model, criterion, optimizer, loader, scheduler)
+scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0001, max_lr=0.1, step_size_up=step_size, mode='triangular2')
+# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, threshold=0.00001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08)
+
+train(model, criterion, optimizer, loader, scheduler, epochs=15)

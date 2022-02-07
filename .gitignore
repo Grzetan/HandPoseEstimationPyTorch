@@ -12,6 +12,7 @@ __pycache__/
 *.so
 
 FreiHand/*
+PanopticHandDataset/*
 *.pth
 
 # Distribution / packaging
