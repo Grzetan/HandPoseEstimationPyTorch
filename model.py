@@ -287,8 +287,9 @@ if __name__ == '__main__':
     import time
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    X = torch.rand((1,3,224,224), dtype=torch.float).to(device)
+    X = torch.rand((4,3,224,224), dtype=torch.float16).to(device)
     model = HandPoseEstimator(architecture).to(device)
+    model.half()
     start = time.time()
     output = model(X)
     print(output.shape, time.time() - start)

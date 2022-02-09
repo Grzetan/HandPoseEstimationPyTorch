@@ -1,29 +1,16 @@
 import torch
 from torchvision.transforms import Compose
-# from model import HandPoseEstimator
-import model
+from model import HandPoseEstimator
 from architecture import architecture
 from PanopticHandDataset import PanopticHandDataset
 from FreiHandDataset import FreiHandDataset
 from transforms import *
 import matplotlib.pyplot as plt
 
-# device = torch.device('cuda:0' if not torch.cuda.is_available() else 'cpu')
 device = torch.device('cpu')
-# model = HandPoseEstimator(architecture)
-configs = {
-  "name": "ARB",
-  "dataset":"HandDataset",
-  "data_root":"data_sample/cmuhand",
-  "ARB": "ARB_Cat",
-  "batch_size": 4,
-  "learning_rate": 1e-4,
-  "epochs": 15
-}
-model = model.light_Model(configs)
-model.load_state_dict(torch.load('./model-epoch0-loss1.98509.pth'))
+model = HandPoseEstimator(architecture)
+model.load_state_dict(torch.load('./model-1644434039.46915-epoch0.pth', map_location=device))
 model.eval()
-model.to(device)
 
 transforms = Compose([
     # Resize(),
@@ -35,7 +22,7 @@ raw_dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xy
 # dataset = PanopticHandDataset('./PanopticHandDataset/hand_labels_synth', transforms=transforms)
 # raw_dataset = PanopticHandDataset('./PanopticHandDataset/hand_labels_synth')
 
-loader = dataset.get_loader(batch_size=2)
+loader = dataset.get_loader(batch_size=1)
 
 for i, (img, points) in enumerate(loader):
     img = img.to(device)
