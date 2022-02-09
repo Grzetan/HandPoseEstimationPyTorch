@@ -30,7 +30,6 @@ class FreiHandDataset(Dataset):
         points = uv[:, :2] / uv[:, -1:]
         img_path = self.imgs_path + '/' + '0'*(8 - len(str(idx))) + str(idx) + '.jpg'
         img = Image.open(img_path).convert('RGB')
-        img = np.asarray(img)
         sample = (img, points)
 
         if self.transforms is not None:

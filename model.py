@@ -18,6 +18,9 @@ class DenseBlock(nn.Module):
             X = torch.cat((X, out), 1)
         return X
 
+    def __repr__(self):
+        return f'DenseBlock(in_channels={self.in_channels}, out_channels={self.out_channels}, n_layers={self.n_layers}, layer={self.layer})'
+
 class TransitionLayer(nn.Module):
     def __init__(self, in_channels, out_channels, stride=2):
         super(TransitionLayer, self).__init__()
@@ -51,7 +54,11 @@ class InvertedBottleneckLayer(nn.Module):
         self.conv_in = nn.Conv2d(in_channels, out_channels*e, kernel_size=1)
         self.bn1 = nn.BatchNorm2d(out_channels*e)
         pad = kernel_size // 2
-        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e, padding=pad)
+        if kernel_size % 2 == 0:
+            self.pad = CustomPadding((pad-1,pad,pad-1,pad))
+        else:
+            self.pad = CustomPadding((pad,pad,pad,pad))
+        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e)
         self.conv_out = nn.Conv2d(out_channels*e, out_channels, kernel_size=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.mish = nn.Mish()
@@ -61,6 +68,7 @@ class InvertedBottleneckLayer(nn.Module):
         X = self.bn1(X)
         X = self.mish(X)
 
+        X = self.pad(X)
         X = self.depthwise_conv(X)
         X = self.bn1(X)
         X = self.mish(X)
@@ -74,6 +82,14 @@ class InvertedBottleneckLayer(nn.Module):
     def __repr__(self):
         return f'InvertedBottleneckLayer(in_channels={self.in_channels}, out_channels={self.out_channels})'
 
+class CustomPadding(nn.Module):
+    def __init__(self, pad=(0,1,0,1)):
+        super(CustomPadding, self).__init__()
+        self.pad = pad
+
+    def forward(self, X):
+        return F.pad(X, self.pad)
+
 class AAInvertedBottleneckLayer(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, n_heads=4, dv=0.1, dk=0.1, e=4, size=None):
         super(AAInvertedBottleneckLayer, self).__init__()
@@ -82,8 +98,12 @@ class AAInvertedBottleneckLayer(nn.Module):
         # Regular Inverted Bottleneck Layer
         self.conv_in = nn.Conv2d(in_channels, out_channels*e, kernel_size=1)
         self.bn1 = nn.BatchNorm2d(out_channels*e)
-        pad = (kernel_size - 1) // 2
-        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e, padding=pad)
+        pad = kernel_size // 2
+        if kernel_size % 2 == 0:
+            self.pad = CustomPadding((pad-1,pad,pad-1,pad))
+        else:
+            self.pad = CustomPadding((pad,pad,pad,pad))
+        self.depthwise_conv = nn.Conv2d(out_channels*e, out_channels*e, kernel_size=kernel_size, groups=out_channels*e)
         self.conv_out = nn.Conv2d(out_channels*e, out_channels, kernel_size=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.mish = nn.Mish()
@@ -91,7 +111,7 @@ class AAInvertedBottleneckLayer(nn.Module):
         self.n_heads = n_heads
         self.dv = int(dv * out_channels * e)
         self.dk = int(dk * out_channels * e)
-        self.aug_conv_out = nn.Conv2d(out_channels*e, out_channels*e-self.dv, kernel_size, padding=pad)
+        self.aug_conv_out = nn.Conv2d(out_channels*e, out_channels*e-self.dv, kernel_size=kernel_size)
         self.qkv_conv = nn.Conv2d(out_channels*e, 2*self.dk+self.dv, 1) 
         self.attention_out = nn.Conv2d(self.dv, self.dv, 1)
         self.AA = AttentionAugmentation2d(2*self.dk+self.dv, size, self.dk, self.dv, n_heads)
@@ -101,11 +121,15 @@ class AAInvertedBottleneckLayer(nn.Module):
         X = self.bn1(X)
         X = self.mish(X)
 
+        X = self.pad(X)
         X = self.depthwise_conv(X)
         X = self.bn1(X)
         X = self.mish(X)
+
         # Attention Augmentation
-        a = self.aug_conv_out(X)
+        a = self.pad(X)
+        a = self.aug_conv_out(a)
+
         attn_out = self.qkv_conv(X)
         attn_out = self.AA(attn_out)
         attn_out = self.attention_out(attn_out)
@@ -257,4 +281,15 @@ class HandPoseEstimator(nn.Module):
         X = torch.clamp(X, max=1)
         X = X.reshape(-1, X.shape[1] // 2, 2)
         return X
+
+if __name__ == '__main__':
+    from architecture import architecture
+    import time
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    X = torch.rand((1,3,224,224), dtype=torch.float).to(device)
+    model = HandPoseEstimator(architecture).to(device)
+    start = time.time()
+    output = model(X)
+    print(output.shape, time.time() - start)
 
