@@ -159,8 +159,8 @@ class AttentionAugmentation2d(nn.Module):
         self.w = nn.Parameter(data = torch.tensor([1.,1.,1.]))
         self.softmax = nn.Softmax(dim=-1)
         # Relative weights
-        self.rel_w = nn.Parameter(data=torch.rand([2*size-1, dk//n_heads]))
-        self.rel_h = nn.Parameter(data=torch.rand([2*size-1, dk//n_heads]))
+        self.rel_w = nn.Parameter(data=torch.rand([2*size-1, dk//n_heads]), requires_grad=True)
+        self.rel_h = nn.Parameter(data=torch.rand([2*size-1, dk//n_heads]), requires_grad=True)
 
     def forward(self, X):
         # Split input along channels dim into Keys, Values and Queries

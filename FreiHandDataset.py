@@ -20,7 +20,7 @@ class FreiHandDataset(Dataset):
         return self.n_images
 
     def get_loader(self, batch_size=32):
-        return DataLoader(self, batch_size=batch_size)
+        return DataLoader(self, batch_size=batch_size, shuffle=True)
 
     def __getitem__(self, idx):
         no_augm_idx = idx%len(self.xyz)
@@ -39,8 +39,16 @@ class FreiHandDataset(Dataset):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    
-    dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json')
+    import torchvision.transforms as T
+    from transforms import *
+
+    transforms = T.Compose([
+        RandomPadding(),
+        RandomVerticalFlip(),
+        RandomColorJitter()
+        # ToTensor()
+    ])
+    dataset = FreiHandDataset('./FreiHand/training/rgb', './FreiHand/training_xyz.json', './FreiHand/training_K.json', transforms=transforms)
     for img, points in dataset:
         fig, ax = plt.subplots()
         ax.imshow(img)

@@ -11,16 +11,15 @@ import json
 class PanopticHandDataset(Dataset):
     def __init__(self, path, transforms=None):
         self.path = path
-        folders = [os.path.join(path,synth) for synth in os.listdir(path) if 'output' not in synth and 'readme' not in synth]
+        folders = [os.path.join(path,synth) for synth in os.listdir(path) if '3' in synth]
         self.labels = [os.path.join(folder, f) for folder in folders for f in os.listdir(folder) if '.json' in f]
-        random.shuffle(self.labels) # Shuffle labels
         self.transforms = transforms
     
     def __len__(self):
         return len(self.labels)
 
     def get_loader(self, batch_size=32):
-        return DataLoader(self, batch_size=batch_size)
+        return DataLoader(self, batch_size=batch_size, shuffle=True)
 
     def __getitem__(self, idx):
         label_path = self.labels[idx]
